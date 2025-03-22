@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>MIDI 鋼琴視覺化</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins&display=swap" rel="stylesheet">
+  <style>
+    /* Reset 與全域樣式 */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: linear-gradient(135deg, #1f4037, #99f2c8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(8px);
+      border-radius: 16px;
+      padding: 30px 40px;
+      max-width: 1100px;
+      width: 100%;
+      text-align: center;
+      position: relative;
+      animation: fadeIn 1s ease-in-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    h1 {
+      font-size: 2.8rem;
+      margin-bottom: 20px;
+      color: #333;
+    }
+    p {
+      font-size: 1.2rem;
+      margin-bottom: 30px;
+      line-height: 1.5;
+      color: #555;
+    }
+    .controls {
+      margin-bottom: 25px;
+    }
+    .controls input[type="file"],
+    .controls select,
+    .controls button,
+    .controls input[type="range"] {
+      font-size: 1rem;
+      padding: 12px 18px;
+      border: none;
+      border-radius: 8px;
+      outline: none;
+      margin: 5px;
+      transition: all 0.3s ease;
+    }
+    .controls input[type="file"],
+    .controls select,
+    .controls input[type="range"] {
+      background: #f0f0f0;
+      color: #333;
+    }
+    .controls select {
+      width: 240px;
+    }
+    .controls button {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    }
+    .controls button:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+    }
+    .controls button:active {
+      transform: translateY(0);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    }
+    .slider-container {
+      display: inline-flex;
+      align-items: center;
+      margin: 10px;
+    }
+    .slider-container label {
+      margin-right: 10px;
+      font-weight: 500;
+    }
+    /* 播放進度條 */
+    input[type="range"]#progressBar {
+      width: 200px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: #ddd;
+      border-radius: 5px;
+    }
+    input[type="range"]#progressBar::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      background: #667eea;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    input[type="range"]#progressBar:disabled::-webkit-slider-thumb {
+      cursor: default;
+    }
+    /* 落下音符區域 */
+    #notesCanvas {
+      display: block;
+      margin: 0 auto 20px auto;
+      background: #fafafa;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+    }
+    /* Piano 顯示區域 */
+    #pianoContainer {
+      position: relative;
+      width: 1000px;
+      max-width: 100%;
+      height: 200px;
+      margin: 20px auto;
+      border: 3px solid #ddd;
+      border-radius: 8px;
+      background: #fafafa;
+    }
+    /* 兩層 Canvas：底層顯示鋼琴鍵盤，上層顯示火焰特效 */
+    #pianoCanvas, #flameCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    @media (max-width: 768px) {
+      .container {
+        padding: 20px;
+      }
+      h1 {
+        font-size: 2.2rem;
+      }
+      p {
+        font-size: 1rem;
+      }
+      .controls input[type="file"],
+      .controls select,
+      .controls button,
+      .controls input[type="range"] {
+        padding: 10px 14px;
+        font-size: 0.9rem;
+      }
+      .slider-container {
+        flex-direction: column;
+      }
+      .slider-container label {
+        margin-bottom: 5px;
+      }
+      input[type="range"]#progressBar {
+        width: 150px;
+      }
+      #notesCanvas {
+        height: 200px;
+      }
+      #pianoContainer {
+        height: 150px;
+      }
+    }
+    /* 語言切換下拉選單 */
+    .language-selector {
+      position: absolute;
+      top: 10px;
+      right: 20px;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- 語言選擇器 -->
+    <div class="language-selector">
+      <label for="languageSelect">Language:</label>
+      <select id="languageSelect">
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+      </select>
+    </div>
+
+    <h1 id="title">MIDI 鋼琴視覺化</h1>
+    <p id="description">
+      請選取包含 <code>.mid</code> 檔案的資料夾，音符將會從上方落下（各自有獨特顏色），
+      當音符碰上鋼琴時，會出現按下後的特效。<br>
+      對於長音符，鋼琴鍵將持續保持按下狀態（亮起狀態），直到音符結束後恢復原狀。<br><br>
+      ※ 注意：瀏覽器無法自動讀取本地指定資料夾，請手動選取。<br>
+      ※ 警告：請不要使用 Black MIDI
+    </p>
+    <div class="controls">
+      <!-- 選取 MIDI 資料夾 -->
+      <input type="file" id="folderInput" webkitdirectory directory multiple>
+      <br>
+      <label id="folderLabel" for="midiSelect">選擇 MIDI 檔案:</label>
+      <select id="midiSelect"></select>
+      <button id="loadButton">載入 MIDI</button>
+      <br>
+      <button id="playButton">播放</button>
+      <button id="pauseButton">暫停</button>
+      <button id="replayButton">重新播放</button>
+      <div class="slider-container">
+        <label id="volumeLabel" for="volumeSlider">音量:</label>
+        <input type="range" id="volumeSlider" min="0" max="2" step="0.01" value="1">
+      </div>
+      <div class="slider-container">
+        <label id="progressLabel" for="progressBar">播放進度:</label>
+        <input type="range" id="progressBar" value="0" disabled>
+      </div>
+    </div>
+    <!-- 落下音符區域 -->
+    <canvas id="notesCanvas" width="1000" height="300"></canvas>
+    <!-- Piano 顯示區域 -->
+    <div id="pianoContainer">
+      <canvas id="pianoCanvas" width="1000" height="200"></canvas>
+      <canvas id="flameCanvas" width="1000" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- 引入 Tone.js 與 Midi 解析庫 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.39/Tone.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.27/build/Midi.min.js"></script>
+  <script>
+    // 多語言翻譯字典
+    const translations = {
+      zh: {
+        title: "MIDI 鋼琴視覺化",
+        description: "請選取包含 <code>.mid</code> 檔案的資料夾，音符將會從上方落下（各自有獨特顏色），<br>當音符碰上鋼琴時，會出現按下後的特效。<br>對於長音符，鋼琴鍵將持續保持按下狀態（亮起狀態），直到音符結束後恢復原狀。<br><br>※ 注意：瀏覽器無法自動讀取本地指定資料夾，請手動選取。<br>※ 警告：請不要使用 Black MIDI",
+        folderLabel: "選擇 MIDI 檔案:",
+        loadButton: "載入 MIDI",
+        playButton: "播放",
+        pauseButton: "暫停",
+        replayButton: "重新播放",
+        volumeLabel: "音量:",
+        progressLabel: "播放進度:"
+      },
+      en: {
+        title: "MIDI Piano Visualization",
+        description: "Please select a folder containing <code>.mid</code> files. Notes will fall from above, each with a unique color, and when they hit the piano, a press effect will appear.<br>For sustained notes, the corresponding piano key remains lit until the note ends.<br><br>※ Note: Browsers cannot automatically read local folders; please select one manually.<br>※ Warning: Do not use Black MIDI",
+        folderLabel: "Select .mid files:",
+        loadButton: "Load MIDI",
+        playButton: "Play",
+        pauseButton: "Pause",
+        replayButton: "Replay",
+        volumeLabel: "Volume:",
+        progressLabel: "Progress:"
+      }
+    };
+
+    function updateLanguage(lang) {
+      document.getElementById("title").innerText = translations[lang].title;
+      document.getElementById("description").innerHTML = translations[lang].description;
+      document.getElementById("folderLabel").innerText = translations[lang].folderLabel;
+      document.getElementById("loadButton").innerText = translations[lang].loadButton;
+      document.getElementById("playButton").innerText = translations[lang].playButton;
+      document.getElementById("pauseButton").innerText = translations[lang].pauseButton;
+      document.getElementById("replayButton").innerText = translations[lang].replayButton;
+      document.getElementById("volumeLabel").innerText = translations[lang].volumeLabel;
+      document.getElementById("progressLabel").innerText = translations[lang].progressLabel;
+      document.title = translations[lang].title;
+    }
+
+    document.getElementById("languageSelect").addEventListener("change", function() {
+      updateLanguage(this.value);
+    });
+
+    // 初始化語言 (預設為中文)
+    updateLanguage("zh");
+
+    // 全局變數與 DOM 參考
+    const midiFiles = {};
+    const midiSelect = document.getElementById("midiSelect");
+    const folderInput = document.getElementById("folderInput");
+    const loadButton = document.getElementById("loadButton");
+    const playButton = document.getElementById("playButton");
+    const pauseButton = document.getElementById("pauseButton");
+    const replayButton = document.getElementById("replayButton");
+    const volumeSlider = document.getElementById("volumeSlider");
+    const progressBar = document.getElementById("progressBar");
+    
+    // Canvas 參考
+    const notesCanvas = document.getElementById("notesCanvas");
+    const notesCtx = notesCanvas.getContext("2d");
+    
+    const pianoCanvas = document.getElementById("pianoCanvas");
+    const pianoCtx = pianoCanvas.getContext("2d");
+    const flameCanvas = document.getElementById("flameCanvas");
+    const flameCtx = flameCanvas.getContext("2d");
+
+    // 用於 MIDI 播放與視覺化的資料
+    let midiNotes = [];    // 儲存所有從 MIDI 解析後的音符
+    let parts = [];        // Tone.Part 實例
+    let synths = [];       // 各軌道合成器
+    let midiDuration = 0;  // MIDI 總持續時間（秒）
+    
+    // 下降區動畫參數
+    const fallDuration = 3; // 從音符開始落下到命中鋼琴的時間（秒）
+    
+    // 鋼琴相關資料
+    const pianoKeys = [];   // 每個鍵：{ midi, isWhite, x, width, y, height }
+    const whiteKeys = [];   // 白鍵集合
+    const blackKeys = [];   // 黑鍵集合
+    const pressedKeys = {}; // 儲存每個鍵是否正在按下，若按下則存入顏色; 否則為 false
+
+    // 火焰粒子集合（用於火焰特效）
+    const flameParticles = [];
+    
+    // 建立全局音量控制節點
+    const volumeControl = new Tone.Gain(parseFloat(volumeSlider.value)).toDestination();
+
+    /*---------------------
+      鋼琴鍵盤的建立與繪製
+    ---------------------*/
+    function isWhiteKey(midi) {
+      const noteInOctave = midi % 12;
+      return [0, 2, 4, 5, 7, 9, 11].includes(noteInOctave);
+    }
+    
+    function buildPianoKeys() {
+      pianoKeys.length = 0;
+      whiteKeys.length = 0;
+      blackKeys.length = 0;
+      let pianoStartMidi = 21;
+      let pianoEndMidi = 108;
+      const totalKeys = pianoEndMidi - pianoStartMidi + 1;
+      const whiteKeyCount = 52;
+      const whiteKeyWidth = pianoCanvas.width / whiteKeyCount;
+      const whiteKeyHeight = pianoCanvas.height;
+      const blackKeyWidth = whiteKeyWidth * 0.6;
+      const blackKeyHeight = pianoCanvas.height * 0.6;
+      
+      let whiteIndex = 0;
+      for (let midi = pianoStartMidi; midi <= pianoEndMidi; midi++) {
+        if (isWhiteKey(midi)) {
+          const key = {
+            midi: midi,
+            isWhite: true,
+            x: whiteIndex * whiteKeyWidth,
+            y: 0,
+            width: whiteKeyWidth,
+            height: whiteKeyHeight
+          };
+          pianoKeys.push(key);
+          whiteKeys.push(key);
+          pressedKeys[midi] = false;
+          whiteIndex++;
+        } else {
+          let prevWhite = null;
+          for (let i = pianoKeys.length - 1; i >= 0; i--) {
+            if (pianoKeys[i].isWhite && pianoKeys[i].midi < midi) {
+              prevWhite = pianoKeys[i];
+              break;
+            }
+          }
+          if (prevWhite) {
+            const key = {
+              midi: midi,
+              isWhite: false,
+              x: prevWhite.x + whiteKeyWidth - blackKeyWidth / 2,
+              y: 0,
+              width: blackKeyWidth,
+              height: blackKeyHeight
+            };
+            pianoKeys.push(key);
+            blackKeys.push(key);
+            pressedKeys[midi] = false;
+          }
+        }
+      }
+    }
+    
+    function drawPiano() {
+      pianoCtx.clearRect(0, 0, pianoCanvas.width, pianoCanvas.height);
+      whiteKeys.forEach(key => {
+        pianoCtx.fillStyle = pressedKeys[key.midi] ? pressedKeys[key.midi] : "#fff";
+        pianoCtx.fillRect(key.x, key.y, key.width, key.height);
+        pianoCtx.strokeStyle = "#000";
+        pianoCtx.strokeRect(key.x, key.y, key.width, key.height);
+      });
+      blackKeys.forEach(key => {
+        pianoCtx.fillStyle = pressedKeys[key.midi] ? pressedKeys[key.midi] : "#000";
+        pianoCtx.fillRect(key.x, key.y, key.width, key.height);
+      });
+      requestAnimationFrame(drawPiano);
+    }
+    
+    /*---------------------
+      火焰特效
+    ---------------------*/
+    function addFlame(x, y, color) {
+      flameParticles.push({
+        x: x,
+        y: y,
+        startTime: performance.now(),
+        lifetime: 500 + Math.random() * 300,
+        maxRadius: 20 + Math.random() * 10,
+        color: color
+      });
+    }
+    
+    function animateFlames() {
+      const now = performance.now();
+      flameCtx.clearRect(0, 0, flameCanvas.width, flameCanvas.height);
+      for (let i = flameParticles.length - 1; i >= 0; i--) {
+        const p = flameParticles[i];
+        const elapsed = now - p.startTime;
+        if (elapsed > p.lifetime) {
+          flameParticles.splice(i, 1);
+          continue;
+        }
+        const fraction = elapsed / p.lifetime;
+        const radius = fraction * p.maxRadius;
+        const alpha = 1 - fraction;
+        const gradient = flameCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius);
+        gradient.addColorStop(0, `rgba(255, 200, 0, ${alpha})`);
+        gradient.addColorStop(0.5, `rgba(255, 100, 0, ${alpha * 0.8})`);
+        gradient.addColorStop(1, `rgba(200, 0, 0, 0)`);
+        flameCtx.beginPath();
+        flameCtx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        flameCtx.fillStyle = gradient;
+        flameCtx.fill();
+      }
+      requestAnimationFrame(animateFlames);
+    }
+    
+    /*---------------------
+      落下音符動畫
+    ---------------------*/
+    function animateFallingNotes() {
+      const currentTime = Tone.Transport.seconds;
+      notesCtx.clearRect(0, 0, notesCanvas.width, notesCanvas.height);
+      
+      pianoKeys.forEach(key => {
+        pressedKeys[key.midi] = false;
+      });
+      
+      midiNotes.forEach(note => {
+        const noteStart = note.time;
+        const noteEnd = note.time + note.duration;
+        
+        if (currentTime > noteEnd || (noteStart - currentTime) > fallDuration) {
+          return;
+        }
+        
+        if (currentTime >= noteStart && currentTime <= noteEnd) {
+          pressedKeys[note.midi] = note.trackColor;
+          if (!note.triggered) {
+            const key = pianoKeys.find(k => k.midi === note.midi);
+            if (key) {
+              addFlame(key.x + key.width / 2, key.y + key.height - 20, note.trackColor);
+            }
+            note.triggered = true;
+          }
+        }
+        
+        let rectX, rectY, rectWidth, rectHeight;
+        const key = pianoKeys.find(k => k.midi === note.midi);
+        if (!key) return;
+        rectX = key.x;
+        rectWidth = key.width;
+        const hitLine = notesCanvas.height;
+        
+        if (currentTime < noteStart) {
+          const offset = (noteStart - currentTime) / fallDuration * notesCanvas.height;
+          const bottomY = hitLine - offset;
+          rectHeight = (note.duration / fallDuration) * notesCanvas.height;
+          rectY = bottomY - rectHeight;
+        } else {
+          const remaining = noteEnd - currentTime;
+          rectHeight = (remaining / fallDuration) * notesCanvas.height;
+          rectY = hitLine - rectHeight;
+        }
+        
+        notesCtx.fillStyle = note.trackColor;
+        notesCtx.fillRect(rectX, rectY, rectWidth, rectHeight);
+        notesCtx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+        notesCtx.strokeRect(rectX, rectY, rectWidth, rectHeight);
+      });
+      requestAnimationFrame(animateFallingNotes);
+    }
+    
+    /*---------------------
+      MIDI 載入與解析
+    ---------------------*/
+    folderInput.addEventListener("change", (event) => {
+      const files = event.target.files;
+      for (const key in midiFiles) {
+        delete midiFiles[key];
+      }
+      midiSelect.innerHTML = "";
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.name.match(/\.mid$/i)) {
+          midiFiles[file.name] = file;
+          const option = document.createElement("option");
+          option.value = file.name;
+          option.text = file.name;
+          midiSelect.appendChild(option);
+        }
+      }
+      if (midiSelect.options.length > 0) {
+        loadMidi(midiFiles[midiSelect.options[0].value]);
+      }
+    });
+    
+    loadButton.addEventListener("click", () => {
+      const selectedFileName = midiSelect.value;
+      if (selectedFileName && midiFiles[selectedFileName]) {
+        loadMidi(midiFiles[selectedFileName]);
+      }
+    });
+    
+    function loadMidi(file) {
+      if (parts.length > 0) {
+        parts.forEach(p => p.dispose());
+        parts = [];
+      }
+      if (synths.length > 0) {
+        synths.forEach(s => s.dispose());
+        synths = [];
+      }
+      midiNotes = [];
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const arrayBuffer = e.target.result;
+        const midi = new Midi(arrayBuffer);
+        midi.tracks.forEach((track, index) => {
+          const hue = Math.floor((index * 360) / (midi.tracks.length || 1));
+          const trackColor = `hsl(${hue}, 70%, 50%)`;
+          track.notes.forEach(note => {
+            note.trackColor = trackColor;
+            note.triggered = false;
+            midiNotes.push(note);
+          });
+          const synth = new Tone.PolySynth().connect(volumeControl);
+          synths.push(synth);
+          const events = track.notes.map(note => ({
+            time: note.time,
+            note: Tone.Frequency(note.midi, "midi").toNote(),
+            duration: note.duration,
+            velocity: note.velocity,
+            midi: note.midi,
+            trackColor: trackColor
+          }));
+          events.sort((a, b) => a.time - b.time);
+          const part = new Tone.Part((time, value) => {
+            synth.triggerAttackRelease(value.note, value.duration, time, value.velocity);
+          }, events);
+          part.start(0);
+          parts.push(part);
+        });
+        if (midiNotes.length > 0) {
+          midiDuration = Math.max(...midiNotes.map(n => n.time + n.duration));
+          progressBar.max = midiDuration;
+        } else {
+          midiDuration = 0;
+          progressBar.max = 0;
+        }
+        Tone.Transport.stop();
+        Tone.Transport.position = "0:0:0";
+      };
+      reader.onerror = function(err) {
+        console.error("讀取 MIDI 檔案錯誤：", err);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+    
+    /*---------------------
+      播放、暫停與重新播放控制
+    ---------------------*/
+    playButton.addEventListener("click", async () => {
+      await Tone.start();
+      if (Tone.Transport.state !== "started") {
+        Tone.Transport.start();
+      }
+    });
+    pauseButton.addEventListener("click", () => {
+      if (Tone.Transport.state === "started") {
+        Tone.Transport.pause();
+      }
+    });
+    replayButton.addEventListener("click", async () => {
+      await Tone.start();
+      Tone.Transport.stop();
+      Tone.Transport.position = "0:0:0";
+      midiNotes.forEach(note => { note.triggered = false; });
+      Tone.Transport.start();
+    });
+    volumeSlider.addEventListener("input", (event) => {
+      const value = parseFloat(event.target.value);
+      volumeControl.gain.value = value;
+    });
+    
+    function updateProgressBar() {
+      if (midiDuration > 0) {
+        progressBar.value = Tone.Transport.seconds;
+      }
+      requestAnimationFrame(updateProgressBar);
+    }
+    requestAnimationFrame(updateProgressBar);
+    
+    /*---------------------
+      啟動動畫循環
+    ---------------------*/
+    buildPianoKeys();
+    drawPiano();
+    animateFlames();
+    animateFallingNotes();
+  </script>
+</body>
+</html>
